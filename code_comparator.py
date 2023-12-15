@@ -2,10 +2,13 @@ import streamlit as st
 import os
 import zipfile
 import pandas as pd
+import plotly.express as px
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
+from sklearn.cluster import KMeans
+import numpy as np
 
 # Function to extract VBA code from files
 def extract_vba_code(zip_file_path):
@@ -51,12 +54,37 @@ def file_comparison(vba_code, extracted_files):
             percentage_matching_lines = (matching_lines / len(vba_code[i].splitlines())) * 100
             comparison_data.append([extracted_files[i], extracted_files[j], len(vba_code[i].split()), similarity_score, matching_lines, non_matching_lines, percentage_matching_lines])
 
-    comparison_df = pd.DataFrame(comparison_data, columns=["File 1 Name", "File 2 Name", "Token Count", "Cosine Similarity Score (%)", "Matching Lines", "Non-Matching Lines", "% Matching Lines"])
-    comparison_df = comparison_df.sort_values(by="Cosine Similarity Score (%)", ascending=False)
+    comparison_df = pd.DataFrame(comparison_data, columns=["File 1 Name", "File 2 Name", "Token Count", "Similarity Score", "Matching Lines", "Non-Matching Lines", "% Matching Lines"])
+    comparison_df = comparison_df.sort_values(by="Similarity Score", ascending=False)
     return comparison_df
 
+# Function to create scatter plot
+def create_scatter_plot(vba_code):
+    stop_words = set(stopwords.words('english'))
+    vectorizer = CountVectorizer(tokenizer=word_tokenize, stop_words=list(stop_words))
+    vectors = vectorizer.fit_transform(vba_code)
+    
+    # Perform KMeans clustering
+    num_clusters = 3  # Adjust the number of clusters as needed
+    kmeans = KMeans(n_clusters=num_clusters, random_state=42)
+    cluster_labels = kmeans.fit_predict(vectors.toarray())
+    
+    # Reduce dimensions for visualization
+    from sklearn.decomposition import PCA
+    pca = PCA(n_components=2)
+    reduced_features = pca.fit_transform(vectors.toarray())
+    
+    df = pd.DataFrame(reduced_features, columns=["Dimension 1", "Dimension 2"])
+    df["Cluster"] = cluster_labels
+    df["File Name"] = extracted_files
+    
+    # Create a scatter plot
+    fig = px.scatter(df, x="Dimension 1", y="Dimension 2", color="Cluster", text="File Name")
+    fig.update_traces(textposition='top center')
+    return fig
+
 # Streamlit UI
-st.title("VBA Code Comparison")
+st.title("VBA Code Comparison and Clustering")
 
 # File upload and processing
 uploaded_file = st.file_uploader("Upload a zip file containing VBA files", type=["zip"])
@@ -65,7 +93,9 @@ if uploaded_file is not None:
         # Extract VBA code and file names
         vba_code, extracted_files = extract_vba_code(uploaded_file)
 
-
+        # Show extracted file names
+        st.subheader("Extracted Files")
+        st.write(extracted_files)
 
         # Show file summary statistics
         st.subheader("File Summary Statistics")
@@ -76,3 +106,8 @@ if uploaded_file is not None:
         st.subheader("File Comparison")
         file_comparison_df = file_comparison(vba_code, extracted_files)
         st.dataframe(file_comparison_df)
+
+        # Create and display the scatter plot
+        st.subheader("File Clustering Scatter Plot")
+        scatter_plot = create_scatter_plot(vba_code)
+        st.plotly_chart(scatter_plot)
